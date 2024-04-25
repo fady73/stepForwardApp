@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-native/no-inline-styles */
 /**
  * Sample React Native App
  * https://github.com/facebook/react-native
@@ -5,114 +7,163 @@
  * @format
  */
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {createRef, useCallback, useEffect, useState} from 'react';
 import {
-  SafeAreaView,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
-  useColorScheme,
   View,
 } from 'react-native';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+import {WebView} from 'react-native-webview';
+import {Error} from './components/Error';
+import {BackHandler} from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import Spinner from 'react-native-loading-spinner-overlay';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+const Loading = () => {
   return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
+    <View style={styles.loadingWrapper}>
+      <Spinner
+        textContent={'Loading...'}
+        visible={true}
+        overlayColor="rgba(0, 0, 0, 0.75)	"
+        textStyle={styles.spinnerTextStyle}
+        customIndicator={<ActivityIndicator size="large" color="#00ff00" />}
+      />
+      {/*  */}
     </View>
   );
-}
+};
 
 function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  const webViewRef = createRef<WebView>();
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  const [error, setError] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refresherEnabled, setEnableRefresher] = useState(true);
+
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  const [currentUrl, setCurrentUrl] = useState('');
+  const reload = useCallback(
+    () => webViewRef && webViewRef.current?.reload(),
+    [webViewRef],
+  );
+
+  //Code to get scroll position
+  const handleScroll = (event: {nativeEvent: {contentOffset: {y: any}}}) => {
+    console.log(Number(event.nativeEvent.contentOffset.y), event.nativeEvent);
+    const yOffset = Number(event.nativeEvent.contentOffset.y);
+    if (yOffset === 0) {
+      console.log('top of the page');
+      setEnableRefresher(true);
+    } else {
+      setEnableRefresher(false);
+    }
   };
 
-  return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+  useEffect(() => {
+    const goBack = () => {
+      if (canGoBack === false) {
+        Alert.alert(
+          'اغلاق التطبيق',
+          'هل تريد الخروج ؟',
+          [
+            {text: 'لا', onPress: () => console.log('No'), style: 'cancel'},
+            {text: 'نعم', onPress: () => BackHandler?.exitApp()},
+          ],
+          {cancelable: false},
+        );
+      }
+      webViewRef.current?.goBack();
+      return true;
+    };
+
+    BackHandler?.addEventListener('hardwareBackPress', () => goBack());
+
+    return () =>
+      BackHandler?.removeEventListener('hardwareBackPress', () => goBack());
+  }, [canGoBack, webViewRef]);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setError(!state.isConnected);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  return !error ? (
+    <>
+      <>
+        <ScrollView
+          contentContainerStyle={{flex: 1}}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              enabled={refresherEnabled}
+              onRefresh={() => {
+                refresherEnabled && reload();
+              }}
+            />
+          }>
+          <WebView
+            source={{uri: 'https://step-forward-app.vercel.app/'}}
+            ref={webViewRef}
+            renderLoading={() => <Loading />}
+            onError={() => setError(true)}
+            onScroll={handleScroll}
+            onNavigationStateChange={navState => {
+              setCanGoBack(navState.canGoBack);
+              setCanGoForward(navState.canGoForward);
+              setCurrentUrl(navState.url);
+            }}
+            allowsBackForwardNavigationGestures
+          />
+        </ScrollView>
+      </>
+    </>
+  ) : (
+    <Error setError={(v: boolean) => setError(v)} />
   );
 }
 
+export default App;
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
+  loading: {
+    fontSize: 15,
     marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
+    textAlign: 'center',
   },
-  highlight: {
-    fontWeight: '700',
+  loadingWrapper: {
+    bottom: 0,
+    flex: 1,
+    justifyContent: 'center',
+    left: 0,
+    marginBottom: 'auto',
+    marginLeft: 'auto',
+    marginRight: 'auto',
+    marginTop: 'auto',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  retry: {
+    alignSelf: 'center',
+  },
+  webView: {
+    flex: 1,
+  },
+  wrapper: {
+    flex: 1,
+  },
+  spinnerTextStyle: {
+    color: 'white',
   },
 });
-
-export default App;
